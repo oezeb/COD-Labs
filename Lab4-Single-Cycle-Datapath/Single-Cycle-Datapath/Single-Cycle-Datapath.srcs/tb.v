@@ -106,7 +106,7 @@ module test_TOP();
     
     TOP TOP (
         .mem_clk(mem_clk), .rst(rst),
-        .cpu_clk(cpu_clk),
+        .cpu_clk(mem_clk),
         .valid(valid),
         .in(in),
         .ready(ready),

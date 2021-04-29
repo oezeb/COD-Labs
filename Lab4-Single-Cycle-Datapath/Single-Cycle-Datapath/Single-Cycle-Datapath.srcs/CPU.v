@@ -19,16 +19,127 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-module TOP (
-    input mem_clk, cpu_clk, rst,
-    input [31:0] pc,
-    
-    input valid,
-    input [31:0] in,
-    output ready,
+module FPGA(
+    input clk, BTN,
+    input [7:0] sw,
+    output [7:0] led,
+    output [2:0] AN,
+    output [3:0] D
+    );
+    wire clk_cpu, ready;
+    reg valid;
+    reg [31:0] cpu_in;
+    reg [7:0] io_addr;
+    reg [31:0] io_dout;
+    wire [31:0] io_din;
 
-    input [31:0] instr_dpra, data_dpra, reg_dpra,
-    output [31:0] instr_dpo, data_dpo, reg_dpo
+    reg io_we;
+
+    always @* begin
+        case (io_addr)
+            8'h00: begin 
+                io_we <= 1;
+                io_dout <= 0;
+            end
+            8'h04: begin
+                io_we <= 1;
+                io_dout <= ready;
+            end
+            8'h08: begin
+                io_we <= 1;
+                io_dout <= 0;
+            end
+            8'h0c: begin
+                io_we <= 0;
+                cpu_in <= io_din;
+            end
+            8'h10: begin
+                io_we <= 0;
+                valid <= io_din;
+            end
+            default: ;
+        endcase
+    end
+
+    always @(posedge clk, posedge rst) begin
+        if(rst) begin
+            io_addr <= 0;
+        end
+        else if(led[6:5] == 0) begin // check
+            case (io_addr)
+                8'h00: io_addr <= 8'h04;
+                8'h04: io_addr <= 8'h08;
+                8'h08: io_addr <= 8'h0c;
+                8'h0c: io_addr <= 8'h10;
+                8'h10: io_addr <= 8'h00;
+                default: ;
+            endcase
+        end
+    end
+
+    TOP TOP (
+        .mem_clk(clk), .cpu_clk(clk_cpu), .rst(),
+        
+        .valid(valid),
+        .in(cpu_in),
+        .ready(ready),
+
+        //.instr_dpra({ 24'h0, m_rf_addr }), 
+        .data_dpra({ 24'h0, m_rf_addr }), .reg_dpra({ 24'h0, m_rf_addr }),
+        //.instr_dpo(), 
+        .data_dpo(m_data), .reg_dpo(rf_data),
+        .pc(pc)
+    );
+
+    pdu_1cycle pdu_1cycle(
+        .clk(clk),
+        .rst(sw[7]),
+
+  //选择CPU工作方式;
+        .run(sw[6]), 
+        .step(BTN),
+        .clk_cpu(clk_cpu),
+
+  //输入switch的端口
+        .valid(sw[5]),
+        .in(sw[4:0]),
+
+  //输出led和seg的端口 
+        .check(led[6:5]),  //led6-5:查看类型
+        .out0(led[4:0]),    //led4-0
+        .an(AN),     //8个数码管
+        .seg(D),
+        .ready(led[7]),          //led7
+
+  //IO_BUS
+        .io_addr(io_addr),
+        .io_dout(io_dout),
+        .io_we(io_we),
+        .io_din(io_din),
+
+  //Debug_BUS
+        .m_rf_addr(m_rf_addr),
+        .rf_data(rf_data),
+        .m_data(m_data),
+        .pc(pc)
+    );
+endmodule
+
+module TOP (
+    input clk, 
+    input rst,
+    
+    //IO_BUS
+    output [7:0] io_addr,      // led or seg address
+    output [31:0] io_dout,     // data out
+    output io_we,
+    input [31:0] io_din,       // data in
+    
+    //Debug_BUS
+    input [7:0] m_rf_addr,   // memory or regFile address
+    output [31:0] rf_data,   // regfile data out
+    output [31:0] m_data,    // memory data out
+    output [31:0] pc         // output pc current state
     );
     
     wire [31:0] instr_a;
@@ -79,13 +190,81 @@ module TOP (
     );
 endmodule
 
-module CPU(
-    input clk, rst,
+module CPU (
+    input clk, 
+    input rst,
+    
+    //IO_BUS
+    output [7:0] io_addr,      // led or seg address
+    output [31:0] io_dout,     // data out
+    output io_we,
+    input [31:0] io_din,       // data in
+    
+    //Debug_BUS
+    input [7:0] m_rf_addr,   // memory or regFile address
+    output [31:0] rf_data,   // regfile data out
+    output [31:0] m_data,    // memory data out
+    output [31:0] pc         // output pc current state
+    );
+    
+    wire [31:0] add4_out, instr, rf_wd, rf_out1, rf_out2, imm_out;
+    wire rf_we; // regfile write enable
+     
+    PC PC (
+        .clk(clk), .rst(rst),
+        .in(),
+        .out(pc)
+    );
+    
+    ADD ADD4(
+        .in0(4), .in1(pc),
+        .out(add4_out)
+    );
 
-    // Getting inputs
-    input valid,
-    input [31:0] in,
-    output ready,
+    instr_mem instr_mem(
+        .clk(clk), .we(0),
+        .a(pc),
+        //.dpra(dpra),
+        //.d(d),
+        .spo(instr),
+        //.dpo(instr_dpo)
+    );
+
+    Decoder Decoder(
+        .instr(instr),      // instruction
+        .rd(rd),        // destination
+        .rs1(rs1), .rs2(rs2),  // sources
+        .opcode(opcode)
+    );
+
+    
+    RegFile RegFile (
+        .clk(clk), .rst(rst), .we(rf_we),  // write enable
+        .wd(rf_wd),           // write data
+        .wa(rd), .ra0(rs1), .ra1(rs2), .ra2(m_rf_addr), // write, read address
+        .rd0(rf_out1), .rd1(rf_out2), .rd2(rf_data)     // read data
+    );
+    
+    Imm Imm(
+        .instr(instr),
+        .out(imm_out)
+    );
+
+    Control Control (
+        .opcode(opcode),
+        .instr(instr),
+        .reg1(reg_out1), .reg2(reg_out2), // RegFile output
+        .valid(valid), // validate IO inputs
+        .pc_mux(pc_mux), 
+        .reg_write(reg_write), .mem_write(data_we),
+        .alu_mux1(alu_mux1), .alu_mux2(alu_mux2),
+        .syscall(ready),
+        .mux3(mux3),
+        .funct3(funct3)
+    );
+
+
+//--------------------------------------------------------------------------------------
 
     // get instructions from instructions memory
     output [31:0] instr_a,
@@ -97,14 +276,6 @@ module CPU(
     output data_we,
     input [31:0] data_spo,
     
-    // PC state 
-    output [31:0] pc,
-    
-    // port to read RegFile content
-    input [31:0] reg_a,
-    output [32:0] reg_out
-    );
-
     // Control signals
     wire pc_mux,
         reg_write, mem_write,
@@ -124,17 +295,6 @@ module CPU(
     assign data_a = alu_out/4;
     assign data_in = reg_out2;
     assign reg_in = ready ? in : mux3_out; //when ready, get input from IO
-
-    PC PC (
-        .clk(clk), .rst(rst),
-        .in(pc_mux_out),
-        .out(pc)
-    );
-
-    ADD ADD4(
-        .in0(4), .in1(pc),
-        .out(add4_out)
-    );
     
     RegFile RegFile (
         .clk(clk), .rst(rst), .we(reg_write),                    // write enable
@@ -251,52 +411,15 @@ module RegFile (
 endmodule
 
 module Decoder (
-    input [31:0] instr,          // instruction
-    output reg [31:0] rd,        // destination
-    output reg [31:0] rs1, rs2,  // sources
-    output [6:0] opcode
+    input  [31:0] instr,          // instruction
+    output [31:0] rd,        // destination
+    output [31:0] rs1, rs2,  // sources
+    output [6:0]  opcode
     );
     assign opcode = instr[6:0];
-    
-    always @(*) begin
-        case (opcode)
-            7'b1101111: begin // jal
-                rd <= instr[11:7];
-                rs1 <= 0;
-                rs2 <= 0;
-            end
-            7'b1100011: begin // beq
-                rd <= 0;
-                rs1 <= instr[19:15];
-                rs2 <= instr[24:20];
-            end
-            7'b0000011: begin // lw
-                rd <= instr[11:7];
-                rs1 <= instr[19:15];
-                rs2 <= 0;
-            end
-            7'b0100011: begin // sw
-                rd <= 0;
-                rs1 <= instr[19:15];
-                rs2 <= instr[24:20];
-            end
-            7'b0010011: begin // addi
-                rd <= instr[11:7];
-                rs1 <= instr[19:15];
-                rs2 <= 0;
-            end
-            7'b0110011: begin // add
-                rd <= instr[11:7];
-                rs1 <= instr[19:15];
-                rs2 <= instr[24:20];
-            end
-            7'b1110011: begin // ecall         
-                rd <= 32'ha; // x10 (a0) register
-                rs1 <= 0;
-                rs2 <= 32'h11; // x17 (a7) register
-            end
-        endcase
-    end    
+    assign rd     = instr[11:7];
+    assign rs1    = instr[19:15];
+    assign rs2    = instr[24:20];
 endmodule
 
 module MUX2 #(parameter MSB = 31, LSB = 0) (
@@ -347,12 +470,11 @@ module PC #(parameter MSB = 31, LSB = 0) (
 endmodule
 
 module Imm (
-    input [6:0] opcode,
     input [31:0] instr,
     output reg [31:0] out
     );
     always @(*) begin
-        case (opcode)
+        case (instr[6:0]) // opcode
             7'b1101111: begin // jal
                 out <= { instr[31] == 0 ? 12'h0 : 12'hfff, instr[31], instr[19:12], instr[20], instr[30:21] } << 1;
             end
@@ -450,5 +572,19 @@ module Control (
                 { reg_write, mem_write } <= 0;
             end
         endcase
+    end
+endmodule
+
+module ALU_Control (
+    input [31:0] instr,
+    output reg [2:0] funct3
+    );
+    always @* begin
+        if(instr[6:0] == 7'b1101111) begin // jal opcode
+            funct3 <= 0;
+        end
+        else begin // sw, lw, addi, add, beq
+            funct3 <= instr[14:12];
+        end
     end
 endmodule
