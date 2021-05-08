@@ -19,6 +19,111 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
+module test_fibonnaci ();
+    reg clk, BTN;
+    reg [7:0] sw;
+    wire [7:0] led;
+    wire [2:0] AN;
+    wire [3:0] D;
+
+    
+    integer i;
+    initial begin
+        clk <= 0; BTN <= 0; sw[7] <= 1; sw[6:5] <= 0; sw[4:0] <= 1;
+        #2 sw[7] <= 0;
+        for (i = 0; i < 16; i=i+1) begin
+            #5 BTN <= 1;
+            #5 BTN <= 0;
+            if(i==8 | i==9) 
+            sw[5] <= 1;
+            else sw[5] <= 0;
+        end
+        #4 $finish;
+    end
+
+
+    always #1 clk <= ~clk;
+
+    TOP TOP (
+        .clk(clk), .BTN(BTN),
+        .sw(sw),
+        .led(led),
+        .AN(AN),
+        .D(D)
+    );
+endmodule
+
+module test_TOP ();
+    reg clk, BTN;
+    reg [7:0] sw;
+    wire [7:0] led;
+    wire [2:0] AN;
+    wire [3:0] D;
+    
+    integer i;
+    initial begin
+        clk <= 0; BTN <= 0; sw[7] <= 1; sw[6:5] <= 0; sw[4:0] <= 5'b11111;
+        #2 sw[7] <= 0;
+        for (i = 0; i < 16; i=i+1) begin
+            #5 BTN <= 1;
+            #5 BTN <= 0; 
+        end
+        #4 $finish;
+    end
+
+    always #1 clk <= ~clk;
+
+    TOP TOP (
+        .clk(clk), .BTN(BTN),
+        .sw(sw),
+        .led(led),
+        .AN(AN),
+        .D(D)
+    );
+endmodule
+
+module test_CPU ();
+    reg clk, rst;
+
+    wire [31:0] io_addr;
+    wire [31:0] io_dout;
+    wire io_we;
+    reg [31:0] io_din;
+
+    reg [7:0] m_rf_addr;   // memory or regFile address
+    wire [31:0] rf_data;   // regfile data out
+    wire [31:0] m_data;    // memory data out
+    wire [31:0] pc;
+
+    integer i;
+    initial begin
+        clk <= 0; rst <= 1; io_din <= 1; m_rf_addr <= 0;
+        #1 rst <= 0;
+        #8 $finish;
+    end
+
+    always begin
+        #1 clk <= ~clk;
+    end
+
+    CPU CPU(
+        .clk(clk), 
+        .rst(rst),
+        
+    //IO_BUS
+        .io_addr(io_addr),      // led or seg address
+        .io_dout(io_dout),     // data out
+        .io_we(io_we),
+        .io_din(io_din),       // data in
+    
+    //Debug_BUS
+        .m_rf_addr(m_rf_addr),   // memory or regFile address
+        .rf_data(rf_data),   // regfile data out
+        .m_data(m_data),    // memory data out
+        .pc(pc)         // output pc current state
+    );
+endmodule
+
 module test_ALU();
     parameter MSB = 31;
     parameter LSB = 0;
@@ -50,73 +155,6 @@ module test_ALU();
         .out(out)
     );
 endmodule
-
-
-module test_TOP();
-    reg mem_clk, cpu_clk, rst;
-    
-    wire [31:0] instr_dpra = pc/4;
-    wire [31:0] instr_dpo;
-    
-    reg [31:0] reg_dpra;
-    wire [31:0] reg_dpo;
-    
-    reg [31:0] data_dpra;
-    wire [31:0] data_dpo;
-
-    wire [31:0] pc;
-     
-    reg valid;
-    reg [31:0] in;
-    wire ready;
-        
-    integer i;
-    initial begin
-        rst <= 1; mem_clk <= 0; cpu_clk <= 0; reg_dpra <= 0; data_dpra <= 0;  in <= 1; valid <= 0;
-        #2 rst <= 0;
-
-        for (i = 0; i < 10; i = i+1) begin
-            #2 reg_dpra <= 5;
-            #2 reg_dpra <= 10;
-            #2 reg_dpra <= 11;
-            #2 reg_dpra <= 12;
-            #2 reg_dpra <= 0;
-            
-            #2 cpu_clk <= 1; // clock
-            #2 cpu_clk <= 0;
-            /*reg_dpra <= 0; instr_dpra <= 0; data_dpra <= 0;
-            for (j = 0; j < 32; j = j+1) begin
-                #2 reg_dpra <= reg_dpra+1; instr_dpra <= instr_dpra+1; data_dpra <= data_dpra+1;
-            end*/
-        end
-        #5 $finish;
-    end
-
-    always #1 mem_clk <= ~mem_clk;
-    
-    always@(*) begin
-        // input
-        if(ready) begin
-            #3 valid <= 1;
-        end
-        else begin 
-            valid <= 0;
-        end
-    end
-    
-    TOP TOP (
-        .mem_clk(mem_clk), .rst(rst),
-        .cpu_clk(mem_clk),
-        .valid(valid),
-        .in(in),
-        .ready(ready),
-        .instr_dpra(instr_dpra), .data_dpra(data_dpra), .reg_dpra(reg_dpra),
-        .instr_dpo(instr_dpo), .data_dpo(data_dpo), .reg_dpo(reg_dpo),
-        .pc(pc)
-    );
-endmodule
-
-
 
 module test_dist_mem ();
     reg clk;

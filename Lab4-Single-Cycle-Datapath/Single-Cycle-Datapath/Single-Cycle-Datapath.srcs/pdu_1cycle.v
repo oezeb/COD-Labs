@@ -2,19 +2,19 @@ module  pdu_1cycle(
   input clk,
   input rst,
 
-  //Ñ¡ÔñCPU¹¤×÷·½Ê½;
+  //???CPU???????;
   input run, 
   input step,
   output clk_cpu,
 
-  //ÊäÈëswitchµÄ¶Ë¿Ú
+  //????switch????
   input valid,
   input [4:0] in,
 
-  //Êä³öledºÍsegµÄ¶Ë¿Ú 
-  output [1:0] check,  //led6-5:²é¿´ÀàĞÍ
+  //???led??seg???? 
+  output [1:0] check,  //led6-5:??????
   output [4:0] out0,    //led4-0
-  output [2:0] an,     //8¸öÊıÂë¹Ü
+  output [2:0] an,     //8???????
   output [3:0] seg,
   output ready,          //led7
 
@@ -31,18 +31,18 @@ module  pdu_1cycle(
   input [31:0] pc
 );
 
-reg [4:0] in_r;    //Í¬²½Íâ²¿ÊäÈëÓÃ
+reg [4:0] in_r;    //???????????
 reg run_r, step_r, step_2r, valid_r, valid_2r;
-wire step_p, valid_pn;  //È¡±ßÑØĞÅºÅ
+wire step_p, valid_pn;  //????????
 
-reg clk_cpu_r;      //¼Ä´æÆ÷Êä³öCPUÊ±ÖÓ
-reg [4:0] out0_r;   //Êä³öÍâÉè¶Ë¿Ú
+reg clk_cpu_r;      //????????CPU???
+reg [4:0] out0_r;   //?????????
 reg [31:0] out1_r;
 reg ready_r;
-reg [19:0] cnt;     //Ë¢ĞÂ¼ÆÊıÆ÷£¬Ë¢ĞÂÆµÂÊÔ¼Îª95Hz
-reg [1:0] check_r;  //²é¿´ĞÅÏ¢ÀàĞÍ, 00-ÔËĞĞ½á¹û£¬01-¼Ä´æÆ÷¶Ñ£¬10-´æ´¢Æ÷£¬11-PC
+reg [19:0] cnt;     //??????????????????95Hz
+reg [1:0] check_r;  //?????????, 00-???Â§ÃŸ????01-????????10-?â€ºÂ¥????11-PC
 
-reg [7:0] io_din_a; //_a±íÊ¾ÎªÂú×ã×éºÏalwaysÃèÊöÒªÇó¶¨ÒåµÄ£¬ÏÂÍ¬
+reg [7:0] io_din_a; //_a???????????always??????????????
 reg ready_a;
 reg [4:0] out0_a;
 reg [31:0] out1_a;
@@ -55,11 +55,11 @@ assign out0 = out0_a;
 assign ready = ready_a;
 assign seg = seg_a;
 assign an = cnt[19:17];
-assign step_p = step_r & ~step_2r;     //È¡ÉÏÉıÑØ
-assign valid_pn = valid_r ^ valid_2r;  //È¡ÉÏÉıÑØ»òÏÂ½µÑØ
+assign step_p = step_r & ~step_2r;     //???????
+assign valid_pn = valid_r ^ valid_2r;  //?????????????
 assign m_rf_addr = {{3{1'b0}}, in_r};
 
-//Í¬²½ÊäÈëĞÅºÅ
+//??????????
 always @(posedge clk) begin
   run_r <= run;
   step_r <= step;
@@ -69,7 +69,7 @@ always @(posedge clk) begin
   in_r <= in;           
 end
 
-//CPU¹¤×÷·½Ê½
+//CPU???????
 always @(posedge clk, posedge rst) begin
   if(rst)
     clk_cpu_r <= 0;
@@ -79,7 +79,7 @@ always @(posedge clk, posedge rst) begin
     clk_cpu_r <= step_p;
 end
 
-//¶ÁÍâÉè¶Ë¿Ú
+//????????
 always @* begin
   case (io_addr)
     8'h0c: io_din_a = {{27{1'b0}}, in_r};
@@ -88,7 +88,7 @@ always @* begin
   endcase
 end
 
-//Ğ´ÍâÉè¶Ë¿Ú
+//Â§Ã•??????
 always @(posedge clk, posedge rst) begin
 if (rst) begin
   out0_r <= 5'h1f;
@@ -104,7 +104,7 @@ else if (io_we)
   endcase
 end
 
-//LEDºÍÊıÂë¹Ü²é¿´ÀàĞÍ
+//LED????????????
 always @(posedge clk, posedge rst) begin
 if(rst)
     check_r <= 2'b00;            
@@ -116,7 +116,7 @@ if(rst)
     check_r <= check - 2'b01;
 end
 
-//LEDºÍÊıÂë¹ÜÏÔÊ¾ÄÚÈİ
+//LED??????????????
 always @* begin
   ready_a = 1'b0;
   case (check_r)
@@ -140,7 +140,7 @@ always @* begin
   endcase
 end
 
-//É¨ÃèÊıÂë¹Ü
+//????????
 always @(posedge clk, posedge rst) begin
   if (rst) cnt <= 20'h0_0000;
   else cnt <= cnt + 20'h0_0001;
