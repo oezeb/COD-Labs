@@ -88,22 +88,49 @@ module test_CPU ();
     wire [31:0] io_addr;
     wire [31:0] io_dout;
     wire io_we;
-    reg [31:0] io_din;
+    //reg [31:0] io_din;
 
     reg [7:0] m_rf_addr;   // memory or regFile address
     wire [31:0] rf_data;   // regfile data out
     wire [31:0] m_data;    // memory data out
     wire [31:0] pc;
 
-    integer i;
     initial begin
-        clk <= 0; rst <= 1; io_din <= 1; m_rf_addr <= 0;
+        clk <= 0; rst <= 1; m_rf_addr <= 0;
         #1 rst <= 0;
-        #8 $finish;
-    end
-
-    always begin
+        #1 clk <= ~clk; m_rf_addr <= 10;
         #1 clk <= ~clk;
+        
+        #1 clk <= ~clk; m_rf_addr <= 1;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk; m_rf_addr <= 0;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk; m_rf_addr <= 11;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk;
+        #1 clk <= ~clk;
+        
+        #1 clk <= ~clk;
+        #1 clk <= ~clk;
+        #1 $finish;
     end
 
     CPU CPU(
@@ -114,7 +141,7 @@ module test_CPU ();
         .io_addr(io_addr),      // led or seg address
         .io_dout(io_dout),     // data out
         .io_we(io_we),
-        .io_din(io_din),       // data in
+        //.io_din(io_din),       // data in
     
     //Debug_BUS
         .m_rf_addr(m_rf_addr),   // memory or regFile address

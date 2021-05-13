@@ -5,7 +5,7 @@
 	sw x1, 0(a0)       # test addi, sw: 4 leds on (8'b0000_1111)
     sw x1, 0(x0)
 main:
-	beq a1, a1, test
+	beq x1, x1, test
 	jal exit
 
 test:
