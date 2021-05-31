@@ -30,22 +30,22 @@
  * fstall | dstall | dflash | eflush |   0    |   0    |      a_fwd      |   0    |   0    |      b_fwd      |   0    | rf_wr  |      wb_sel     |
  *
  *   15   |   14   |   13   |   12   |   11   |   10   |   09   |   08   |   07   |   06   |   05   |   04   |   03   |   02   |   01   |   00   |
- *   0    |   0    | m_edm  |  m_wr  |   0    |   0    |   jal  |   br   |   0    |   0    | a_sell | b_sell |              alu_op               |
+ *   0    |   0    | m_edm  |  m_wr  |   0    |   0    |   jal  |   br   |   0    |   0    | a_sel  | b_sel  |              alu_op               |
  */
 
 module CPU(
     input clk, rst,
     
     //IO_BUS
-    output [7:0] io_addr,      //led和seg的地�?????
-    output [31:0] io_dout,     //输出led和seg的数�?????
+    output [7:0] io_addr,      //led和seg的地�???????
+    output [31:0] io_dout,     //输出led和seg的数�???????
     output io_we,                 //输出led和seg数据时的使能信号
-    input [31:0] io_din,        //来自sw的输入数�?????
+    input [31:0] io_din,        //来自sw的输入数�???????
     
     //Debug_BUS
-    input [7:0] m_rf_addr,   //存储�?????(MEM)或寄存器�?????(RF)的调试读口地�?????
-    output [31:0] rf_data,    //从RF读取的数�?????
-    output [31:0] m_data,    //从MEM读取的数�?????
+    input [7:0] m_rf_addr,   //存储�???????(MEM)或寄存器�???????(RF)的调试读口地�???????
+    output [31:0] rf_data,    //从RF读取的数�???????
+    output [31:0] m_data,    //从MEM读取的数�???????
 
     //PC/IF/ID 流水段寄存器
     output [31:0] pc,
@@ -97,7 +97,7 @@ module CPU(
     assign rd = ire[11:7];
 
     //
-    wire[31:0] alu_mux;
+    wire[31:0] alu_ctrl_mux;
 
     //
     wire [31:0] pc_add_imm;
@@ -110,17 +110,19 @@ module CPU(
     
     wire [31:0] data_mem_spo;
 
-    wire branch, jal, m_wr, rf_wr;
+    wire branch, jal, m_wr, rf_wr, a_sel, b_sel;
     wire [1:0] ALU_op, wb_sel;
 
     wire [31:0] ctrl_in;
 
+    assign ctrl_in[3:0] = { 2'b0, ALU_op };
+    assign ctrl_in[4] = b_sel;
+    assign ctrl_in[5] = a_sel;
     assign ctrl_in[8] = branch;
     assign ctrl_in[9] = jal; 
     assign ctrl_in[12] = m_wr;
-    assign ctrl_in[18] = rf_wr;
-    assign ctrl_in[3:0] = { 2'b0, ALU_op };
     assign ctrl_in[17:16] = wb_sel;
+    assign ctrl_in[18] = rf_wr;
 
     PC PC (
         .clk(clk), .rst(rst), .en(1),
@@ -150,8 +152,8 @@ module CPU(
     );
 
     Control Control(
-        .opcode(ir[6:0]),
-        .branch(branch), .jal(jal), .m_wr(m_wr), .rf_wr(rf_wr), 
+        .opcode(ir[6:0]), .rst(rst),
+        .branch(branch), .jal(jal), .m_wr(m_wr), .rf_wr(rf_wr), .a_sel(a_sel), .b_sel(b_sel),
         .ALU_op(ALU_op), .wb_sel(wb_sel)
     );
 
@@ -198,10 +200,10 @@ module CPU(
         .in(ir), .out(ire)
     );
     
-    MUX2 ALU_MUX (
+    MUX2 ALU_CTRL_MUX (
         .in0(b), .in1(imm),
-        .sel(1), //
-        .out(alu_mux)
+        .sel(ctrl[4]), //b_sel
+        .out(alu_ctrl_mux)
     );
 
     ADD PC_ADD_Imm(
@@ -210,7 +212,7 @@ module CPU(
     );
     
     ALU ALU (
-        .in0(a), .in1(alu_mux),
+        .in0(a), .in1(alu_ctrl_mux),
         .op(alu_ctrl), 
         .out(alu),
         .zero(zero)
@@ -282,6 +284,15 @@ module CPU(
         .sel((ctrl[8]&&zero)||ctrl[9]), // (branch&&zero) || jal
         .out(pc_mux)
     );
+endmodule
+
+module ForwardingUnit (
+    input [4:0] rs1, rs2,
+    input [4:0] rdm, rdw,
+    input rf_wr_m, rf_wr_wb,
+    output [1:0] a_fwd, b_fwd
+    );
+    
 endmodule
 
 module REG #(parameter MSB = 31, LSB = 0)(
@@ -408,46 +419,53 @@ module MUX4 #(parameter MSB = 31, LSB = 0) (
 endmodule
 
 module Control (
+    input rst,
     input [6:0] opcode,
-    output reg branch, jal, m_wr, rf_wr,
+    output reg branch, jal, m_wr, rf_wr, a_sel, b_sel,
     output reg [1:0] ALU_op, wb_sel
     );
     always @(*) begin
-        case (opcode)
-            7'b1101111: begin // jal
-                jal <= 1;
-                { rf_wr, m_wr } <= 0;
-                ALU_op <= 2'b00;
-            end
-            7'b1100011: begin // beq
-                branch <= 1'b1;
-                { jal, rf_wr, m_wr } <= 0;
-                ALU_op <= 2'b01;
-            end
-            7'b0000011: begin // lw
-                rf_wr <= 1'b1;
-                { jal, branch, m_wr } <= 0;
-                wb_sel <= 2'b1;
-                ALU_op <= 2'b00;
-            end
-            7'b0100011: begin // sw
-                m_wr <= 1'b1;
-                { jal, branch, rf_wr } <= 0;
-                ALU_op <= 2'b00;
-            end
-            7'b0010011: begin // addi
-                rf_wr <= 1'b1;
-                { jal, branch, m_wr } <= 0;
-                wb_sel <= 2'b0;
-                ALU_op <= 2'b00;
-            end
-            7'b0110011: begin // add
-                rf_wr <= 1'b1;
-                { jal, branch, m_wr } <= 0;
-                wb_sel <= 2'b0;
-                ALU_op <= 2'b10;
-            end
-        endcase
+        if(rst) begin
+            {branch, jal, m_wr, rf_wr, a_sel, b_sel, ALU_op, wb_sel } <= 0;
+        end
+        else begin
+            a_sel <= 0;
+            case (opcode)
+                7'b1101111: begin // jal
+                    jal <= 1;
+                    { rf_wr, m_wr } <= 0;
+                    ALU_op <= 2'b00;
+                end
+                7'b1100011: begin // beq
+                    branch <= 1'b1;
+                    { jal, rf_wr, m_wr, b_sel } <= 0;
+                    ALU_op <= 2'b01;
+                end
+                7'b0000011: begin // lw
+                    { b_sel, rf_wr } <= 2'b11;
+                    { jal, branch, m_wr } <= 0;
+                    wb_sel <= 2'b1;
+                    ALU_op <= 2'b00;
+                end
+                7'b0100011: begin // sw
+                    { b_sel, m_wr } <= 2'b11;
+                    { jal, branch, rf_wr } <= 0;
+                    ALU_op <= 2'b00;
+                end
+                7'b0010011: begin // addi
+                    {b_sel, rf_wr } <= 2'b11;
+                    { jal, branch, m_wr } <= 0;
+                    wb_sel <= 2'b0;
+                    ALU_op <= 2'b00;
+                end
+                7'b0110011: begin // add
+                    rf_wr <= 1'b1;
+                    { jal, branch, m_wr, b_sel } <= 0;
+                    wb_sel <= 2'b0;
+                    ALU_op <= 2'b10;
+                end
+            endcase
+        end
     end
 endmodule
 
