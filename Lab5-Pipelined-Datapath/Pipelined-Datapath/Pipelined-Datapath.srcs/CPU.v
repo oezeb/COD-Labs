@@ -19,6 +19,247 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
+`define AND 4'b0000
+`define OR  4'b0001
+`define ADD 4'b0010
+`define SUB 4'b0110
+
+module CPU(
+    input clk, rst,
+    
+    //IO_BUS
+    output [7:0] io_addr,      //led和seg的地�?????
+    output [31:0] io_dout,     //输出led和seg的数�?????
+    output io_we,                 //输出led和seg数据时的使能信号
+    input [31:0] io_din,        //来自sw的输入数�?????
+    
+    //Debug_BUS
+    input [7:0] m_rf_addr,   //存储�?????(MEM)或寄存器�?????(RF)的调试读口地�?????
+    output [31:0] rf_data,    //从RF读取的数�?????
+    output [31:0] m_data,    //从MEM读取的数�?????
+
+    //PC/IF/ID 流水段寄存器
+    output [31:0] pc,
+    output [31:0] pcd,
+    output [31:0] ir,
+    output [31:0] pcin,
+
+    //ID/EX 流水段寄存器
+    output [31:0] pce,
+    output [31:0] a,
+    output [31:0] b,
+    output [31:0] imm,
+    output [4:0] rd,
+    output [31:0] ctrl,
+
+    //EX/MEM 流水段寄存器
+    output [31:0] y,
+    output [31:0] bm,
+    output [4:0] rdm,
+    output [31:0] ctrlm,
+
+    //MEM/WB 流水段寄存器
+    output [31:0] yw,
+    output [31:0] mdr,
+    output [4:0] rdw,
+    output [31:0] ctrlw
+    );
+
+    //
+    wire [31:0] pc_mux;
+    
+    // PC_ADD_4 output
+    wire [31:0] pc_add_4;
+
+    // Instruction memory output
+    wire [31:0] instr;
+
+    //
+    wire [31:0] rf_mux;
+    wire [4:0] rdw;
+
+    // RegFile outputs
+    wire[31:0] rf_out1, rf_out2;
+
+    // ImmGen output
+    wire [31:0] imm_gen;
+
+    //
+    wire[31:0] alu_mux;
+
+    //
+    wire [31:0] pc_add_imm;
+
+    //
+    wire[31:0] alu;
+    wire zero;
+    
+    wire [31:0] mem_spo;
+    PC PC (
+        .clk(clk), .rst(rst), .en(1),
+        .in(pc_mux),
+        .out(pc)
+    );
+
+    ADD PC_ADD_4(
+        .in0(pc), .in1(4),
+        .out(pc_add_4)
+    );
+
+    instr_mem instr_mem(
+        .clk(clk), .we(0),
+        .a(pc/4),
+        .spo(instr)
+    );
+
+    REG PCD(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(pc), .out(pcd)
+    );
+
+    REG IR(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(instr), .out(ir)
+    );
+
+    RegFile RegFile (
+        .clk(clk), .rst(rst), 
+        .we(),             // write enable
+        .wd(rf_mux), .wa(rdw), 
+        .ra0(instr[19:15]),     .ra1(instr[24:20]),     .ra2(m_rf_addr), // read address
+        .rd0(rf_out1), .rd1(rf_out2), .rd2(rf_data)     // read data
+    );
+
+    ImmGen ImmGen(
+        .instr(instr),
+        .out(imm_gen)
+    );
+
+    REG PCE(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(pcd), .out(pce)
+    );
+
+    REG A(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(rf_out1), .out(a)
+    );
+    
+    REG B(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(rf_out2), .out(b)
+    );
+    
+    REG Imm(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(imm_gen), .out(imm)
+    );
+    
+    REG Rd(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(instr[11:7]), .out(rd)
+    );
+    
+    MUX2 ALU_MUX (
+        .in0(b), .in1(imm),
+        .sel(),
+        .out(alu_mux)
+    );
+
+    ADD PC_ADD_Imm(
+        .in0(pce), .in1(imm<<1),
+        .out(pc_add_imm)
+    );
+    
+    ALU ALU (
+        .in0(a), .in1(alu_mux),
+        .op(), 
+        .out(alu),
+        .zero(zero)
+    );
+
+    REG Y(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(alu), .out(y)
+    );
+
+    REG BM(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(b), .out(bm)
+    );
+
+    REG RdM(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(rd), .out(rdm)
+    );
+    
+    data_mem data_mem(
+        .clk(clk), .we(), //TODO
+        .a(y/4),
+        .dpra(m_rf_addr),
+        .d(bm),
+        .spo(mem_spo),
+        .dpo(m_data)
+    );
+    
+    REG MDR(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(mem_spo), .out(mdr)
+    );
+    
+    REG YW(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(y), .out(yw)
+    );
+
+    REG RdW(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(rdm), .out(rdw)
+    );
+
+    MUX2 RF_MUX (
+        .in0(mdr), .in1(yw),
+        .sel(),
+        .out(rf_mux)
+    );
+    
+    MUX2 PC_MUX (
+        .in0(pc_add_4), .in1(pc_add_imm),
+        .sel(),
+        .out(pc_mux)
+    );
+endmodule
+
+module REG #(parameter MSB = 31, LSB = 0)(
+    input clk, hold, clear,
+    input [MSB:LSB] in,
+    output reg [MSB:LSB] out
+    );
+    always @(posedge clk or posedge clear) begin
+        if(clear) out <= 0;
+        else if(hold) out <= out;
+        else out <= in;
+    end
+endmodule
+
+module PC #(parameter MSB = 31, LSB = 0) (
+    input clk, en, rst,
+    input [MSB:LSB] in,
+    output reg [MSB:LSB] out
+    );
+    always @(posedge clk or posedge rst) begin
+        if(rst) out <= 0;
+        else if(en) out <= in;
+    end
+endmodule
+
+module ADD #(parameter MSB = 31, LSB = 0) (
+    input [MSB:LSB] in0, in1,
+    output [MSB:LSB] out
+    );
+    assign out = in0+in1;
+endmodule
+
 module RegFile (
     input clk, rst, we,             // write enable
     input [31:0] wd,                // write data
@@ -39,5 +280,60 @@ module RegFile (
         else if(wa != 0 & we == 1) begin
             memory[wa] <= wd;
         end
+    end
+endmodule
+
+module ALU #(parameter MSB = 31, LSB = 0, F_MSB = 2, F_LSB = 0) (
+    input [MSB:LSB] in0, in1,
+    input [F_MSB:F_LSB] op,
+    output zero,
+    output reg [MSB:LSB] out
+    );
+    assign zero = (out == 0);
+    always @(*) begin
+        case (op)
+            `AND: out <= in0 & in1;
+            `OR: out  <= in0 | in1;
+            `ADD: out <= in0 + in1;
+            `SUB: out <= in0 - in1;
+        endcase
+    end
+endmodule
+
+module ImmGen (
+    input [31:0] instr,
+    output reg [31:0] out
+    );
+    always @(*) begin
+        case (instr[6:0]) // opcode
+            7'b1101111: begin // jal
+                out <= { instr[31] == 0 ? 12'h0 : 12'hfff, instr[31], instr[19:12], instr[20], instr[30:21] };
+            end
+            7'b1100011: begin // beq
+                out <= { instr[31] == 0 ? 12'h0 : 12'hfff, instr[31], instr[7], instr[30:25], instr[11:8] };
+            end
+            7'b0000011: begin // lw
+                out <= { instr[31:20] };
+            end
+            7'b0100011: begin // sw
+                out <= { instr[31:25], instr[11:7] };
+            end
+            7'b0010011: begin // addi
+                out <= { instr[31:20] };
+            end
+        endcase
+    end
+endmodule
+
+module MUX2 #(parameter MSB = 31, LSB = 0) (
+    input [MSB:LSB] in0, in1,
+    input sel,
+    output reg [MSB:LSB] out
+    );
+    always @(*) begin
+        case(sel)
+            1'b0: out <= in0;
+            1'b1: out <= in1;
+        endcase
     end
 endmodule
