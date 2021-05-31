@@ -24,6 +24,15 @@
 `define ADD 4'b0010
 `define SUB 4'b0110
 
+/*
+ * Ctrl
+ *   31   |   30   |   29   |   28   |   27   |   26   |   25   |   24   |   23   |   22   |   21   |   20   |   19   |   18   |   17   |   16   |
+ * fstall | dstall | dflash | eflush |   0    |   0    |      a_fwd      |   0    |   0    |      b_fwd      |   0    | rf_wr  |      wb_sel     |
+ *
+ *   15   |   14   |   13   |   12   |   11   |   10   |   09   |   08   |   07   |   06   |   05   |   04   |   03   |   02   |   01   |   00   |
+ *   0    |   0    | m_edm  |  m_wr  |   0    |   0    |   jal  |   br   |   0    |   0    | a_sell | b_sell |              alu_op               |
+ */
+
 module CPU(
     input clk, rst,
     
@@ -95,6 +104,17 @@ module CPU(
     wire zero;
     
     wire [31:0] mem_spo;
+
+    wire branch, jal, m_wr, rf_wr;
+    wire [1:0] ALU_op;
+
+    wire [31:0] ctrl_in;
+    assign ctrl_in[8] = branch;
+    assign ctrl_in[9] = jal; 
+    assign ctrl_in[12] = m_wr;
+    assign ctrl_in[18] = rf_wr;
+    assign ctrl_in[3:0] = { 2'b0, ALU_op };
+
     PC PC (
         .clk(clk), .rst(rst), .en(1),
         .in(pc_mux),
@@ -122,17 +142,28 @@ module CPU(
         .in(instr), .out(ir)
     );
 
+    Control Control(
+        .opcode(ir[6:0]),
+        .branch(branch), .jal(jal), .m_wr(m_wr), .rf_wr(rf_wr),
+        .ALU_op(ALU_op)
+    );
+
     RegFile RegFile (
         .clk(clk), .rst(rst), 
         .we(),             // write enable
         .wd(rf_mux), .wa(rdw), 
-        .ra0(instr[19:15]),     .ra1(instr[24:20]),     .ra2(m_rf_addr), // read address
+        .ra0(ir[19:15]),     .ra1(ir[24:20]),     .ra2(m_rf_addr), // read address
         .rd0(rf_out1), .rd1(rf_out2), .rd2(rf_data)     // read data
     );
 
     ImmGen ImmGen(
-        .instr(instr),
+        .instr(ir),
         .out(imm_gen)
+    );
+
+    REG CTRL(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(ctrl_in), .out(ctrl)
     );
 
     REG PCE(
@@ -157,7 +188,7 @@ module CPU(
     
     REG Rd(
         .clk(clk), .hold(0), .clear(rst),
-        .in(instr[11:7]), .out(rd)
+        .in(ir[11:7]), .out(rd)
     );
     
     MUX2 ALU_MUX (
@@ -176,6 +207,11 @@ module CPU(
         .op(), 
         .out(alu),
         .zero(zero)
+    );
+
+    REG CTRLM(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(ctrl), .out(ctrlm)
     );
 
     REG Y(
@@ -202,6 +238,11 @@ module CPU(
         .dpo(m_data)
     );
     
+    REG CTRLW(
+        .clk(clk), .hold(0), .clear(rst),
+        .in(ctrlm), .out(ctrlw)
+    );
+
     REG MDR(
         .clk(clk), .hold(0), .clear(rst),
         .in(mem_spo), .out(mdr)
@@ -334,6 +375,48 @@ module MUX2 #(parameter MSB = 31, LSB = 0) (
         case(sel)
             1'b0: out <= in0;
             1'b1: out <= in1;
+        endcase
+    end
+endmodule
+
+
+module Control (
+    input [6:0] opcode,
+    output reg branch, jal, m_wr, rf_wr,
+    output reg [1:0] ALU_op
+    );
+    always @(*) begin
+        case (opcode)
+            7'b1101111: begin // jal
+                jal <= 1;
+                { rf_wr, m_wr } <= 0;
+                ALU_op <= 2'b00;
+            end
+            7'b1100011: begin // beq
+                branch <= 1'b1;
+                { jal, rf_wr, m_wr } <= 0;
+                ALU_op <= 2'b01;
+            end
+            7'b0000011: begin // lw
+                rf_wr <= 1'b1;
+                { jal, branch, m_wr } <= 0;
+                ALU_op <= 2'b00;
+            end
+            7'b0100011: begin // sw
+                m_wr <= 1'b1;
+                { jal, branch, rf_wr } <= 0;
+                ALU_op <= 2'b00;
+            end
+            7'b0010011: begin // addi
+                rf_wr <= 1'b1;
+                { jal, branch, m_wr } <= 0;
+                ALU_op <= 2'b00;
+            end
+            7'b0110011: begin // add
+                rf_wr <= 1'b1;
+                { jal, branch, m_wr } <= 0;
+                ALU_op <= 2'b10;
+            end
         endcase
     end
 endmodule
