@@ -81,7 +81,7 @@ module CPU(
     wire [31:0] pc_add_4;
 
     // Instruction memory output
-    wire [31:0] instr;
+    wire [31:0] instr_mem_spo;
 
     //
     wire [31:0] rf_mux;
@@ -93,6 +93,9 @@ module CPU(
     // ImmGen output
     wire [31:0] imm_gen;
 
+    wire [31:0] ire;
+    assign rd = ire[11:7];
+
     //
     wire[31:0] alu_mux;
 
@@ -102,18 +105,22 @@ module CPU(
     //
     wire[31:0] alu;
     wire zero;
+
+    wire [2:0] alu_ctrl;
     
-    wire [31:0] mem_spo;
+    wire [31:0] data_mem_spo;
 
     wire branch, jal, m_wr, rf_wr;
-    wire [1:0] ALU_op;
+    wire [1:0] ALU_op, wb_sel;
 
     wire [31:0] ctrl_in;
+
     assign ctrl_in[8] = branch;
     assign ctrl_in[9] = jal; 
     assign ctrl_in[12] = m_wr;
     assign ctrl_in[18] = rf_wr;
     assign ctrl_in[3:0] = { 2'b0, ALU_op };
+    assign ctrl_in[17:16] = wb_sel;
 
     PC PC (
         .clk(clk), .rst(rst), .en(1),
@@ -129,7 +136,7 @@ module CPU(
     instr_mem instr_mem(
         .clk(clk), .we(0),
         .a(pc/4),
-        .spo(instr)
+        .spo(instr_mem_spo)
     );
 
     REG PCD(
@@ -139,18 +146,18 @@ module CPU(
 
     REG IR(
         .clk(clk), .hold(0), .clear(rst),
-        .in(instr), .out(ir)
+        .in(instr_mem_spo), .out(ir)
     );
 
     Control Control(
         .opcode(ir[6:0]),
-        .branch(branch), .jal(jal), .m_wr(m_wr), .rf_wr(rf_wr),
-        .ALU_op(ALU_op)
+        .branch(branch), .jal(jal), .m_wr(m_wr), .rf_wr(rf_wr), 
+        .ALU_op(ALU_op), .wb_sel(wb_sel)
     );
 
     RegFile RegFile (
         .clk(clk), .rst(rst), 
-        .we(),             // write enable
+        .we(ctrlw[18]),             // write enable. rf_wr
         .wd(rf_mux), .wa(rdw), 
         .ra0(ir[19:15]),     .ra1(ir[24:20]),     .ra2(m_rf_addr), // read address
         .rd0(rf_out1), .rd1(rf_out2), .rd2(rf_data)     // read data
@@ -186,14 +193,14 @@ module CPU(
         .in(imm_gen), .out(imm)
     );
     
-    REG Rd(
+    REG IRE(
         .clk(clk), .hold(0), .clear(rst),
-        .in(ir[11:7]), .out(rd)
+        .in(ir), .out(ire)
     );
     
     MUX2 ALU_MUX (
         .in0(b), .in1(imm),
-        .sel(),
+        .sel(1), //
         .out(alu_mux)
     );
 
@@ -204,9 +211,15 @@ module CPU(
     
     ALU ALU (
         .in0(a), .in1(alu_mux),
-        .op(), 
+        .op(alu_ctrl), 
         .out(alu),
         .zero(zero)
+    );
+
+    ALU_Control ALU_Control (
+        .ALU_op(ctrl[1:0]),
+        .instr(ire),
+        .op(alu_ctrl)
     );
 
     REG CTRLM(
@@ -230,11 +243,11 @@ module CPU(
     );
     
     data_mem data_mem(
-        .clk(clk), .we(), //TODO
+        .clk(clk), .we(ctrlm[12]), // m_wr
         .a(y/4),
         .dpra(m_rf_addr),
         .d(bm),
-        .spo(mem_spo),
+        .spo(data_mem_spo),
         .dpo(m_data)
     );
     
@@ -245,7 +258,7 @@ module CPU(
 
     REG MDR(
         .clk(clk), .hold(0), .clear(rst),
-        .in(mem_spo), .out(mdr)
+        .in(data_mem_spo), .out(mdr)
     );
     
     REG YW(
@@ -258,15 +271,15 @@ module CPU(
         .in(rdm), .out(rdw)
     );
 
-    MUX2 RF_MUX (
-        .in0(mdr), .in1(yw),
-        .sel(),
+    MUX4 RF_MUX (
+        .in0(yw), .in1(mdr), .in2(), .in3(),
+        .sel(ctrlw[17:16]), // wb_sel 
         .out(rf_mux)
     );
     
     MUX2 PC_MUX (
         .in0(pc_add_4), .in1(pc_add_imm),
-        .sel(),
+        .sel((ctrl[8]&&zero)||ctrl[9]), // (branch&&zero) || jal
         .out(pc_mux)
     );
 endmodule
@@ -379,11 +392,25 @@ module MUX2 #(parameter MSB = 31, LSB = 0) (
     end
 endmodule
 
+module MUX4 #(parameter MSB = 31, LSB = 0) (
+    input [MSB:LSB] in0, in1, in2, in3,
+    input [1:0]sel,
+    output reg [MSB:LSB] out
+    );
+    always @(*) begin
+        case(sel)
+            2'b00: out <= in0;
+            2'b01: out <= in1;
+            2'b10: out <= in2;
+            2'b11: out <= in3;
+        endcase
+    end
+endmodule
 
 module Control (
     input [6:0] opcode,
     output reg branch, jal, m_wr, rf_wr,
-    output reg [1:0] ALU_op
+    output reg [1:0] ALU_op, wb_sel
     );
     always @(*) begin
         case (opcode)
@@ -400,6 +427,7 @@ module Control (
             7'b0000011: begin // lw
                 rf_wr <= 1'b1;
                 { jal, branch, m_wr } <= 0;
+                wb_sel <= 2'b1;
                 ALU_op <= 2'b00;
             end
             7'b0100011: begin // sw
@@ -410,13 +438,43 @@ module Control (
             7'b0010011: begin // addi
                 rf_wr <= 1'b1;
                 { jal, branch, m_wr } <= 0;
+                wb_sel <= 2'b0;
                 ALU_op <= 2'b00;
             end
             7'b0110011: begin // add
                 rf_wr <= 1'b1;
                 { jal, branch, m_wr } <= 0;
+                wb_sel <= 2'b0;
                 ALU_op <= 2'b10;
             end
         endcase
+    end
+endmodule
+
+module ALU_Control (
+    input [1:0] ALU_op,
+    input [31:0] instr,
+    output reg [2:0] op
+    );
+    wire [2:0] funct3;
+    wire [6:0] funct7;
+
+    assign funct3 = instr[14:12];
+    assign funct7 = instr[31:25];
+
+    always @* begin
+        case (ALU_op)
+            2'b00: op <= `ADD;
+            2'b01: op <= `SUB;
+            2'b10: begin
+                case ({funct7, funct3})
+                    10'b0000000000: op <= `ADD;
+                    10'b0100000000: op <= `SUB;
+                    10'b0000000111: op <= `AND;
+                    10'b0000000110: op <= `OR; 
+                endcase
+            end
+            2'b11: op <= `SUB;
+       endcase 
     end
 endmodule
