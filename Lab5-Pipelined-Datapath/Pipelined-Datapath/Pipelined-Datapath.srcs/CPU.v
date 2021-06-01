@@ -37,15 +37,15 @@ module CPU(
     input clk, rst,
     
     //IO_BUS
-    output [7:0] io_addr,      //led和seg的地�???????
-    output [31:0] io_dout,     //输出led和seg的数�???????
+    output [7:0] io_addr,      //led和seg的地�????????
+    output [31:0] io_dout,     //输出led和seg的数�????????
     output io_we,                 //输出led和seg数据时的使能信号
-    input [31:0] io_din,        //来自sw的输入数�???????
+    input [31:0] io_din,        //来自sw的输入数�????????
     
     //Debug_BUS
-    input [7:0] m_rf_addr,   //存储�???????(MEM)或寄存器�???????(RF)的调试读口地�???????
-    output [31:0] rf_data,    //从RF读取的数�???????
-    output [31:0] m_data,    //从MEM读取的数�???????
+    input [7:0] m_rf_addr,   //存储�????????(MEM)或寄存器�????????(RF)的调试读口地�????????
+    output [31:0] rf_data,    //从RF读取的数�????????
+    output [31:0] m_data,    //从MEM读取的数�????????
 
     //PC/IF/ID 流水段寄存器
     output [31:0] pc,
@@ -124,6 +124,10 @@ module CPU(
     assign ctrl_in[17:16] = wb_sel;
     assign ctrl_in[18] = rf_wr;
 
+    wire [1:0] a_fwd, b_fwd;
+
+    wire [31:0] alu_fwd_mux1, alu_fwd_mux2;
+
     PC PC (
         .clk(clk), .rst(rst), .en(1),
         .in(pc_mux),
@@ -201,9 +205,21 @@ module CPU(
     );
     
     MUX2 ALU_CTRL_MUX (
-        .in0(b), .in1(imm),
+        .in0(alu_fwd_mux2), .in1(imm),
         .sel(ctrl[4]), //b_sel
         .out(alu_ctrl_mux)
+    );
+
+    MUX4 ALU_FWD_MUX1 (
+        .in0(a), .in1(rf_mux), .in2(y),
+        .sel(a_fwd),
+        .out(alu_fwd_mux1)
+    );
+    
+    MUX4 ALU_FWD_MUX2 (
+        .in0(b), .in1(rf_mux), .in2(y),
+        .sel(b_fwd),
+        .out(alu_fwd_mux2)
     );
 
     ADD PC_ADD_Imm(
@@ -212,7 +228,7 @@ module CPU(
     );
     
     ALU ALU (
-        .in0(a), .in1(alu_ctrl_mux),
+        .in0(alu_fwd_mux1), .in1(alu_ctrl_mux),
         .op(alu_ctrl), 
         .out(alu),
         .zero(zero)
@@ -222,6 +238,13 @@ module CPU(
         .ALU_op(ctrl[1:0]),
         .instr(ire),
         .op(alu_ctrl)
+    );
+
+    ForwardingUnit ForwardingUnit(
+        .rs1(ire[19:15]), .rs2(ire[24:20]),
+        .rdm(rdm), .rdw(rdw),
+        .rf_wr_m(ctrlm[18]), .rf_wr_wb(ctrlw[18]), // rf_wb
+        .a_fwd(a_fwd), .b_fwd(b_fwd)
     );
 
     REG CTRLM(
@@ -290,9 +313,17 @@ module ForwardingUnit (
     input [4:0] rs1, rs2,
     input [4:0] rdm, rdw,
     input rf_wr_m, rf_wr_wb,
-    output [1:0] a_fwd, b_fwd
+    output reg [1:0] a_fwd, b_fwd
     );
-    
+    always @* begin
+        if(rf_wr_m && rdm != 0 && rs1 == rdm) a_fwd <= 2;
+        else if(rf_wr_wb && rdw != 0 && rs1 == rdw) a_fwd <= 1;
+        else a_fwd <= 0;
+
+        if(rf_wr_m && rdm != 0 && rs2 == rdm) b_fwd <= 2;
+        else if(rf_wr_wb && rdw != 0 && rs2 == rdw) b_fwd <= 1;
+        else b_fwd <= 0;
+    end
 endmodule
 
 module REG #(parameter MSB = 31, LSB = 0)(
