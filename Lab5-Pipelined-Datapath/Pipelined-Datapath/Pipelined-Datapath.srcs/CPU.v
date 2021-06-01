@@ -83,6 +83,8 @@ module CPU(
     // Instruction memory output
     wire [31:0] instr_mem_spo;
 
+    wire [31:0] instr_mux;
+
     //
     wire [31:0] rf_mux;
     wire [4:0] rdw;
@@ -147,6 +149,12 @@ module CPU(
         .spo(instr_mem_spo)
     );
 
+    MUX2 instr_MUX (
+        .in0(instr_mem_spo), .in1(0),
+        .sel(dflush),
+        .out(instr_mux)
+    );
+
     REG PCD(
         .clk(clk), .hold(dstall), .clear(dflush),
         .in(pc), .out(pcd)
@@ -154,7 +162,7 @@ module CPU(
 
     REG IR(
         .clk(clk), .hold(dstall), .clear(dflush),
-        .in(instr_mem_spo), .out(ir)
+        .in(instr_mux), .out(ir)
     );
 
     Control Control(
@@ -338,7 +346,7 @@ module HazardDetectionUnit (
         else if(branch || jal) begin
             { fstall, dstall } <= 0;
             dflush <= 1;
-            eflush <= 1;
+            //eflush <= 1;
         end
         else begin
             { fstall, dstall, dflush, eflush } <= 0;
