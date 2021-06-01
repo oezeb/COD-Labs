@@ -33,19 +33,146 @@
  *   0    |   0    |  m_rd  |  m_wr  |   0    |   0    |   jal  |   br   |   0    |   0    | a_sel  | b_sel  |              alu_op               |
  */
 
+module TOP (
+    input clk, BTN,
+    input [7:0] sw,
+    output [7:0] led,
+    output [2:0] AN,
+    output [3:0] D
+    );
+    wire clk_cpu;
+    
+    //IO_BUS
+    wire [7:0] io_addr;      //led鍜宻eg鐨勫湴锟�???????
+    wire [31:0] io_dout;     //杈撳嚭led鍜宻eg鐨勬暟锟�???????
+    wire io_we;            //杈撳嚭led鍜宻eg鏁版嵁鏃剁殑浣胯兘淇″彿
+    wire [31:0] io_din;        //鏉ヨ嚜sw鐨勮緭鍏ユ暟锟�?????
+    
+    //Debug_BUS
+    wire [7:0] m_rf_addr;   //瀛樺偍锟�???????(MEM)鎴栧瘎�?�樺櫒锟�???????(RF)鐨勮皟璇曡鍙ｅ湴锟�???????
+    wire [31:0] rf_data;    //浠嶳F璇诲彇鐨勬暟锟�?????
+    wire [31:0] m_data;    //浠嶮EM璇诲彇鐨勬暟锟�?????
+
+    //PC/IF/ID 娴佹按娈靛瘎瀛樺�??
+    wire [31:0] pc;
+    wire [31:0] pcd;
+    wire [31:0] ir;
+    wire [31:0] pcin;
+
+    //ID/EX 娴佹按娈靛瘎瀛樺�??
+    wire [31:0] pce;
+    wire [31:0] a;
+    wire [31:0] b;
+    wire [31:0] imm;
+    wire [4:0] rd;
+    wire [31:0] ctrl;
+
+    //EX/MEM 娴佹按娈靛瘎瀛樺�??
+    wire [31:0] y;
+    wire [31:0] bm;
+    wire [4:0] rdm;
+    wire [31:0] ctrlm;
+
+    //MEM/WB 娴佹按娈靛瘎瀛樺�??
+    wire [31:0] yw;
+    wire [31:0] mdr;
+    wire [4:0] rdw;
+    wire [31:0] ctrlw;
+  
+    pdu pdu(
+        .clk(clk),
+        .rst(sw[7]),
+        
+    //ѡ��CPU������ʽ;
+        .run(sw[6]), 
+        .step(BTN),
+        .clk_cpu(clk_cpu),
+
+    //����switch�Ķ˿�
+        .valid(sw[5]),
+        .in(sw[4:0]),
+
+    //���led��seg�Ķ˿� 
+        .check(led[6:5]),  //led6-5:�鿴����
+        .out0(led[4:0]),   //led4-0
+        .an(AN),     //8�������?
+        .seg(D),
+        .ready(led[7]),        //led7
+    
+    //IO_BUS
+        .io_addr(io_addr),
+        .io_dout(io_dout),
+        .io_we(io_we),
+        .io_din(io_din),
+
+    //Debug_BUS
+        .m_rf_addr(m_rf_addr),
+        .rf_data(rf_data),
+        .m_data(m_data),
+
+  //������ˮ�߼Ĵ������Խӿ�
+        .pcin(pcin), .pc(pc),.pcd(pcd), .pce(pce),
+        .ir(ir), .imm(imm), .mdr(mdr),
+        .a(a), .b(b), .y(y), .bm(bm), .yw(yw),
+        .rd(rd), .rdm(rdm), .rdw(rdw),
+        .ctrl(ctrl), .ctrlm(ctrlm), .ctrlw(ctrlw)
+    );
+    CPU CPU(
+        .clk(clk_cpu), 
+        .rst(sw[7]),
+    
+    //IO_BUS
+        .io_addr(io_addr),      //led和seg的地�????????
+        .io_dout(io_dout),     //输出led和seg的数�????????
+        .io_we(io_we),                 //输出led和seg数据时的使能信号
+        .io_din(io_din),        //来自sw的输入数�????????
+    
+    //Debug_BUS
+        .m_rf_addr(m_rf_addr),   //存储�????????(MEM)或寄存器�????????(RF)的调试读口地�????????
+        .rf_data(rf_data),    //从RF读取的数�????????
+        .m_data(m_data),    //从MEM读取的数�????????
+
+    //PC/IF/ID 流水段寄存器
+        .pc(pc),
+        .pcd(pcd),
+        .ir(ir),
+        .pcin(pcin),
+
+    //ID/EX 流水段寄存器
+        .pce(pce),
+        .a(a),
+        .b(b),
+        .imm(imm),
+        .rd(rd),
+        .ctrl(ctrl),
+
+    //EX/MEM 流水段寄存器
+        .y(y),
+        .bm(bm),
+        .rdm(rdm),
+        .ctrlm(ctrlm),
+
+    //MEM/WB 流水段寄存器
+        .yw(yw),
+        .mdr(mdr),
+        .rdw(rdw),
+        .ctrlw(ctrlw)
+    );
+endmodule
+
 module CPU(
     input clk, rst,
     
     //IO_BUS
-    output [7:0] io_addr,      //led和seg的地�?????????
-    output [31:0] io_dout,     //输出led和seg的数�?????????
+    output [7:0] io_addr,      //led和seg的地�????????
+    output [31:0] io_dout,     //输出led和seg的数�????????
     output io_we,                 //输出led和seg数据时的使能信号
-    input [31:0] io_din,        //来自sw的输入数�?????????
+    input [31:0] io_din,        //来自sw的输入数�????????
     
     //Debug_BUS
-    input [7:0] m_rf_addr,   //存储�?????????(MEM)或寄存器�?????????(RF)的调试读口地�?????????
-    output [31:0] rf_data,    //从RF读取的数�?????????
-    output [31:0] m_data,    //从MEM读取的数�?????????
+    input [7:0] m_rf_addr,   //存储�????????(MEM)或寄存器�????????(RF)的调试读口地�????????
+    output [31:0] rf_data,    //从RF读取的数�????????
+    output [31:0] m_data,    //从MEM读取的数�????????
 
     //PC/IF/ID 流水段寄存器
     output [31:0] pc,
@@ -73,9 +200,6 @@ module CPU(
     output [4:0] rdw,
     output [31:0] ctrlw
     );
-
-    //
-    wire [31:0] pc_mux;
     
     // PC_ADD_4 output
     wire [31:0] pc_add_4;
@@ -133,12 +257,13 @@ module CPU(
 
     wire fstall, dstall, dflush, eflush;
 
-    assign io_addr = y;
-    assign io_dout = bm;
+    assign io_addr = y; // io_addr
+    assign io_dout = bm; // io_dout
+    assign io_we = y[10] && ctrlm[12]; // io_addr[10] && m_wr
 
     REG PC(
         .clk(clk), .hold(fstall), .clear(rst),
-        .in(pc_mux), .out(pc)
+        .in(pcin), .out(pc)
     );
 
     ADD PC_ADD_4(
@@ -325,8 +450,8 @@ module CPU(
     
     MUX2 PC_MUX (
         .in0(pc_add_4), .in1(pc_add_imm),
-        .sel((ctrl[8]&&zero)||ctrl[9]), // (branch&&zero) || jal
-        .out(pc_mux)
+        .sel(rst ? 0 : (ctrl[8]&&zero)||ctrl[9]), // (branch&&zero) || jal
+        .out(pcin)
     );
 endmodule
 
@@ -383,17 +508,6 @@ module REG #(parameter MSB = 31, LSB = 0)(
         if(clear) out <= 0;
         else if(hold) out <= out;
         else out <= in;
-    end
-endmodule
-
-module PC #(parameter MSB = 31, LSB = 0) (
-    input clk, en, rst,
-    input [MSB:LSB] in,
-    output reg [MSB:LSB] out
-    );
-    always @(posedge clk or posedge rst) begin
-        if(rst) out <= 0;
-        else if(en) out <= in;
     end
 endmodule
 
