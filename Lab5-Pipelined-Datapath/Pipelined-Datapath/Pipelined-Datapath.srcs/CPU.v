@@ -37,15 +37,15 @@ module CPU(
     input clk, rst,
     
     //IO_BUS
-    output [7:0] io_addr,      //led和seg的地�????????
-    output [31:0] io_dout,     //输出led和seg的数�????????
+    output [7:0] io_addr,      //led和seg的地�?????????
+    output [31:0] io_dout,     //输出led和seg的数�?????????
     output io_we,                 //输出led和seg数据时的使能信号
-    input [31:0] io_din,        //来自sw的输入数�????????
+    input [31:0] io_din,        //来自sw的输入数�?????????
     
     //Debug_BUS
-    input [7:0] m_rf_addr,   //存储�????????(MEM)或寄存器�????????(RF)的调试读口地�????????
-    output [31:0] rf_data,    //从RF读取的数�????????
-    output [31:0] m_data,    //从MEM读取的数�????????
+    input [7:0] m_rf_addr,   //存储�?????????(MEM)或寄存器�?????????(RF)的调试读口地�?????????
+    output [31:0] rf_data,    //从RF读取的数�?????????
+    output [31:0] m_data,    //从MEM读取的数�?????????
 
     //PC/IF/ID 流水段寄存器
     output [31:0] pc,
@@ -132,6 +132,9 @@ module CPU(
     wire [31:0] alu_fwd_mux1, alu_fwd_mux2;
 
     wire fstall, dstall, dflush, eflush;
+
+    assign io_addr = y;
+    assign io_dout = bm;
 
     REG PC(
         .clk(clk), .hold(fstall), .clear(rst),
@@ -286,7 +289,7 @@ module CPU(
     );
     
     data_mem data_mem(
-        .clk(clk), .we(ctrlm[12]), // m_wr
+        .clk(clk), .we(ctrlm[12] && ~y[10]), // m_wr && io_addr[10]
         .a(y/4),
         .dpra(m_rf_addr),
         .d(bm),
@@ -315,8 +318,8 @@ module CPU(
     );
 
     MUX4 RF_MUX (
-        .in0(yw), .in1(mdr), .in2(), .in3(),
-        .sel(ctrlw[17:16]), // wb_sel 
+        .in0(yw), .in1(mdr), .in2(io_din), .in3(io_din),
+        .sel({yw[10], ctrlw[16]}), // { io_addr[10], wb_sel[0] } 
         .out(rf_mux)
     );
     
