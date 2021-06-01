@@ -27,10 +27,10 @@
 /*
  * Ctrl
  *   31   |   30   |   29   |   28   |   27   |   26   |   25   |   24   |   23   |   22   |   21   |   20   |   19   |   18   |   17   |   16   |
- * fstall | dstall | dflash | eflush |   0    |   0    |      a_fwd      |   0    |   0    |      b_fwd      |   0    | rf_wr  |      wb_sel     |
+ * fstall | dstall | dflush | eflush |   0    |   0    |      a_fwd      |   0    |   0    |      b_fwd      |   0    | rf_wr  |      wb_sel     |
  *
  *   15   |   14   |   13   |   12   |   11   |   10   |   09   |   08   |   07   |   06   |   05   |   04   |   03   |   02   |   01   |   00   |
- *   0    |   0    | m_edm  |  m_wr  |   0    |   0    |   jal  |   br   |   0    |   0    | a_sel  | b_sel  |              alu_op               |
+ *   0    |   0    |  m_rd  |  m_wr  |   0    |   0    |   jal  |   br   |   0    |   0    | a_sel  | b_sel  |              alu_op               |
  */
 
 module CPU(
@@ -110,7 +110,7 @@ module CPU(
     
     wire [31:0] data_mem_spo;
 
-    wire branch, jal, m_wr, rf_wr, a_sel, b_sel;
+    wire branch, jal, m_wr, m_rd, rf_wr, a_sel, b_sel;
     wire [1:0] ALU_op, wb_sel;
 
     wire [31:0] ctrl_in;
@@ -121,6 +121,7 @@ module CPU(
     assign ctrl_in[8] = branch;
     assign ctrl_in[9] = jal; 
     assign ctrl_in[12] = m_wr;
+    assign ctrl_in[13] = m_rd;
     assign ctrl_in[17:16] = wb_sel;
     assign ctrl_in[18] = rf_wr;
 
@@ -128,10 +129,11 @@ module CPU(
 
     wire [31:0] alu_fwd_mux1, alu_fwd_mux2;
 
-    PC PC (
-        .clk(clk), .rst(rst), .en(1),
-        .in(pc_mux),
-        .out(pc)
+    wire fstall, dstall, dflush, eflush;
+
+    REG PC(
+        .clk(clk), .hold(fstall), .clear(rst),
+        .in(pc_mux), .out(pc)
     );
 
     ADD PC_ADD_4(
@@ -146,19 +148,27 @@ module CPU(
     );
 
     REG PCD(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(dstall), .clear(dflush),
         .in(pc), .out(pcd)
     );
 
     REG IR(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(dstall), .clear(dflush),
         .in(instr_mem_spo), .out(ir)
     );
 
     Control Control(
-        .opcode(ir[6:0]), .rst(rst),
-        .branch(branch), .jal(jal), .m_wr(m_wr), .rf_wr(rf_wr), .a_sel(a_sel), .b_sel(b_sel),
+        .opcode(ir[6:0]), .rst(rst | dstall),
+        .branch(branch), .jal(jal), .m_wr(m_wr), .m_rd(m_rd), .rf_wr(rf_wr), .a_sel(a_sel), .b_sel(b_sel),
         .ALU_op(ALU_op), .wb_sel(wb_sel)
+    );
+
+    HazardDetectionUnit HazardDetectionUnit(
+        .rst(rst),
+        .rs1(ir[19:15]), .rs2(ir[24:10]), .rde(ire[11:7]),
+        .m_rd_e(ctrl[13]), 
+        .branch(ctrlm[8]&&zero), .jal(ctrl[9]),
+        .fstall(fstall), .dstall(dstall), .dflush(dflush), .eflush(eflush)
     );
 
     RegFile RegFile (
@@ -175,32 +185,32 @@ module CPU(
     );
 
     REG CTRL(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(0), .clear(eflush),
         .in(ctrl_in), .out(ctrl)
     );
 
     REG PCE(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(0), .clear(eflush),
         .in(pcd), .out(pce)
     );
 
     REG A(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(0), .clear(eflush),
         .in(rf_out1), .out(a)
     );
     
     REG B(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(0), .clear(eflush),
         .in(rf_out2), .out(b)
     );
     
     REG Imm(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(0), .clear(eflush),
         .in(imm_gen), .out(imm)
     );
     
     REG IRE(
-        .clk(clk), .hold(0), .clear(rst),
+        .clk(clk), .hold(0), .clear(eflush),
         .in(ir), .out(ire)
     );
     
@@ -259,7 +269,7 @@ module CPU(
 
     REG BM(
         .clk(clk), .hold(0), .clear(rst),
-        .in(b), .out(bm)
+        .in(alu_fwd_mux2), .out(bm)
     );
 
     REG RdM(
@@ -307,6 +317,33 @@ module CPU(
         .sel((ctrl[8]&&zero)||ctrl[9]), // (branch&&zero) || jal
         .out(pc_mux)
     );
+endmodule
+
+module HazardDetectionUnit (
+    input rst,
+    input [4:0] rs1, rs2, rde,
+    input m_rd_e,
+    input branch, jal,
+    output reg fstall, dstall, dflush, eflush
+    );
+    always @* begin
+        if(rst) begin
+            { fstall, dstall, dflush, eflush } <= 0;
+        end
+        else if(rde != 0 && (rs1 == rde || rs2 == rde) && m_rd_e) begin
+            { dflush, eflush } <= 0;
+            fstall <= 1;
+            dstall <= 1;
+        end
+        else if(branch || jal) begin
+            { fstall, dstall } <= 0;
+            dflush <= 1;
+            eflush <= 1;
+        end
+        else begin
+            { fstall, dstall, dflush, eflush } <= 0;
+        end
+    end
 endmodule
 
 module ForwardingUnit (
@@ -409,13 +446,13 @@ module ImmGen (
                 out <= { instr[31] == 0 ? 12'h0 : 12'hfff, instr[31], instr[7], instr[30:25], instr[11:8] };
             end
             7'b0000011: begin // lw
-                out <= { instr[31:20] };
+                out <= { instr[31] == 0 ? 20'h0 : 20'hfffff, instr[31:20] };
             end
             7'b0100011: begin // sw
-                out <= { instr[31:25], instr[11:7] };
+                out <= { instr[31] == 0 ? 20'h0 : 20'hfffff, instr[31:25], instr[11:7] };
             end
             7'b0010011: begin // addi
-                out <= { instr[31:20] };
+                out <= { instr[31] == 0 ? 20'h0 : 20'hfffff, instr[31:20] };
             end
         endcase
     end
@@ -452,46 +489,46 @@ endmodule
 module Control (
     input rst,
     input [6:0] opcode,
-    output reg branch, jal, m_wr, rf_wr, a_sel, b_sel,
+    output reg branch, jal, m_wr, m_rd, rf_wr, a_sel, b_sel,
     output reg [1:0] ALU_op, wb_sel
     );
     always @(*) begin
         if(rst) begin
-            {branch, jal, m_wr, rf_wr, a_sel, b_sel, ALU_op, wb_sel } <= 0;
+            {branch, jal, m_wr, rf_wr, wb_sel } <= 0;
         end
         else begin
             a_sel <= 0;
             case (opcode)
                 7'b1101111: begin // jal
                     jal <= 1;
-                    { rf_wr, m_wr } <= 0;
+                    { rf_wr, m_wr, m_rd } <= 0;
                     ALU_op <= 2'b00;
                 end
                 7'b1100011: begin // beq
                     branch <= 1'b1;
-                    { jal, rf_wr, m_wr, b_sel } <= 0;
+                    { jal, rf_wr, m_wr, m_rd, b_sel } <= 0;
                     ALU_op <= 2'b01;
                 end
                 7'b0000011: begin // lw
-                    { b_sel, rf_wr } <= 2'b11;
+                    { b_sel, rf_wr, m_rd } <= 3'b111;
                     { jal, branch, m_wr } <= 0;
                     wb_sel <= 2'b1;
                     ALU_op <= 2'b00;
                 end
                 7'b0100011: begin // sw
                     { b_sel, m_wr } <= 2'b11;
-                    { jal, branch, rf_wr } <= 0;
+                    { jal, branch, rf_wr, m_rd } <= 0;
                     ALU_op <= 2'b00;
                 end
                 7'b0010011: begin // addi
                     {b_sel, rf_wr } <= 2'b11;
-                    { jal, branch, m_wr } <= 0;
+                    { jal, branch, m_wr, m_rd } <= 0;
                     wb_sel <= 2'b0;
                     ALU_op <= 2'b00;
                 end
                 7'b0110011: begin // add
                     rf_wr <= 1'b1;
-                    { jal, branch, m_wr, b_sel } <= 0;
+                    { jal, branch, m_wr, m_rd, b_sel } <= 0;
                     wb_sel <= 2'b0;
                     ALU_op <= 2'b10;
                 end

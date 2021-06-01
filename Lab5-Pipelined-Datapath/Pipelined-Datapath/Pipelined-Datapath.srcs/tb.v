@@ -63,7 +63,7 @@ module tb();
     initial begin
         clk <= 0; rst <= 1; m_rf_addr <= 1;
         #2 rst <= 0;
-        #20 $finish;
+        #60 $finish;
     end
     
     always #1 clk <= ~clk;
